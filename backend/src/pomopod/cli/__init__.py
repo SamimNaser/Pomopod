@@ -3,20 +3,30 @@ from typing import Optional
 
 import typer
 
+from pomopod.cli.config import app as config
 from pomopod.cli.profile import app as profile
 
 app = typer.Typer(help="Pomopod CLI")
-app.add_typer(profile, name="profile")
+app.add_typer(
+  profile,
+  name="profile",
+  help="Manage pomodoro profiles",
+)
+app.add_typer(
+  config,
+  name="config",
+  help="Manage pomodoro profiles",
+)
 
 
-@app.command(name="tui")
-def tui():
-  typer.echo("TUI will come soon")
-
-
-@app.command(name="gui")
-def gui():
-  typer.echo("GUI will come soon")
+# @app.command(name="tui")
+# def tui():
+#   typer.echo("TUI will come soon")
+#
+#
+# @app.command(name="gui")
+# def gui():
+#   typer.echo("GUI will come soon")
 
 
 @app.command(name="serve")

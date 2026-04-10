@@ -1,3 +1,4 @@
+import time
 from enum import Enum
 from typing import Annotated
 
@@ -90,3 +91,69 @@ class TimerState(BaseModel):
   sessions_before_long_break: int = 4
   is_paused: bool = True
   end_timestamp_ms: int = 0
+
+  def _now(self):
+    return int(round(time.time() * 1000))
+
+  def get_time_left_ms(self) -> int:
+    remaining = self.end_timestamp_ms - self._now()
+    return max(0, remaining)
+
+  def start(self, duration_ms: int):
+    """Start the timer with given duration."""
+    self.is_paused = False
+    self.end_timestamp_ms = self._now() + duration_ms
+
+  def pause(self) -> int:
+    """Pause the timer, return remaining time."""
+    if self.is_paused:
+      return self.get_time_left_ms()
+
+    self.end_timestamp_ms = self.get_time_left_ms()
+    self.is_paused = True
+    return self.end_timestamp_ms
+
+  def resume(self):
+    """Resume the timer with saved remaining."""
+    if not self.is_paused:
+      return
+
+    remaining = self.end_timestamp_ms
+    self.is_paused = False
+    self.end_timestamp_ms = self._now() + remaining
+
+  def reset(self):
+    """Reset the timer for current session."""
+    self.is_paused = True
+    self.end_timestamp_ms = 0
+
+  def stop(self):
+    """Stop the timer and reset to idle."""
+    self.current_type = TimerStateType.IDLE
+    self.is_paused = True
+    self.end_timestamp_ms = 0
+    self.current_session_number = 1
+
+  def get_next_session_type(self) -> TimerStateType:
+    """Determine next session after current ends."""
+    if self.current_type == TimerStateType.IDLE:
+      return TimerStateType.FOCUS
+    elif self.current_type == TimerStateType.FOCUS:
+      if self.current_session_number >= self.sessions_before_long_break:
+        return TimerStateType.LONG_BREAK
+      else:
+        return TimerStateType.SHORT_BREAK
+    else:
+      return TimerStateType.FOCUS
+
+  def cycle_session(self):
+    """Move to next session after current ends."""
+    if self.current_type == TimerStateType.FOCUS:
+      self.current_session_number += 1
+    self.current_type = self.get_next_session_type()
+
+  def reset_sessions_number(self):
+    """Reset the sessions number for current space."""
+    if self.current_type == TimerStateType.IDLE:
+      return
+    self.current_session_number = 1

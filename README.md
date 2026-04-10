@@ -11,30 +11,42 @@ Features:
 
 ## Dependenccies
 
+**Important**: This project uses `uv` for Python and `pnpm` for React!
+
 Install python dependencies and create virtual environment:
 
 ```bash
 cd backend
-uv venv --python 3.14
-source .venv/bin/activate
 uv sync
 ```
 
-Install react dependencies:
+Install react and dependencies:
 
 ```bash
 cd frontend
-npm install
+pnpm install
 ```
 
 ## Run the app
 
+Run the backend:
+
 ```bash
 cd backend
-uv run main.py
+uv run pomopod --help
 ```
+
+or
+
+```bash
+cd backend
+source .venv/bin/activate
+pomopod --help
+```
+
+Run the frontend:
 
 ```bash
 cd frontend
-npm run dev
+pnpm dev
 ```

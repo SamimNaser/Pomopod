@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from pomopod.core import state
 from pomopod.core.models import Config, DaemonSettings, NotificationSettings, Space
+from pomopod.exceptions.config import SpaceAlreadyExists, SpaceDoesNotExist
 
 CONFIG_DIR = Path.home() / ".config" / "pomopod"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -15,11 +16,23 @@ def _ensure_config_dir() -> None:
   CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def is_config_correct() -> bool:
+  try:
+    _load_config()
+  except ValidationError:
+    return False
+  return True
+
+
 def _get_default_config() -> Config:
   return Config()
 
 
 def _load_config() -> Config:
+  """
+  Load and return the config file.
+  Raises `ValidationError` if the config file is invalid.
+  """
   if not CONFIG_FILE.exists():
     _ensure_config_dir()
     config = _get_default_config()
@@ -32,7 +45,7 @@ def _load_config() -> Config:
   try:
     config = Config.model_validate(config_json)
   except ValidationError:
-    return _get_default_config()
+    raise ValidationError
 
   return config
 
@@ -53,32 +66,34 @@ def get_space_names() -> list[str]:
   return list(config.spaces.keys())
 
 
-def get_active_space() -> Optional[Space]:
+def get_active_space() -> Space:
   config = _load_config()
 
   active_space_name = state.get_active_space_name()
-  if active_space_name is None:
-    return None
 
   return config.spaces.get(active_space_name)
 
 
-def add_space(name: str, space: Space) -> Optional[Space]:
+def add_space(name: str, space: Space) -> Space:
+  """
+  Add a space to the config.
+  Raises `SpaceDoesNotExist` if the space already exists.
+  """
   config = _load_config()
 
   if name in list(config.spaces.keys()):
-    return None
+    raise SpaceAlreadyExists
 
   config.spaces[name] = space
   _save_config(config)
   return space
 
 
-def edit_space(name: str, updates: dict) -> Optional[Space]:
+def edit_space(name: str, updates: dict) -> Space:
   config = _load_config()
 
   if name not in list(config.spaces.keys()):
-    return None
+    raise SpaceDoesNotExist
 
   current = config.spaces[name]
   updated_data = current.model_dump()
@@ -89,11 +104,15 @@ def edit_space(name: str, updates: dict) -> Optional[Space]:
   return config.spaces[name]
 
 
-def remove_space(name: str) -> Optional[Space]:
+def remove_space(name: str) -> Space:
+  """
+  Remove a space from the config.
+  Raises `SpaceDoesNotExist` if the space already exists.
+  """
   config = _load_config()
 
   if name not in list(config.spaces.keys()):
-    return None
+    raise SpaceDoesNotExist
 
   space = config.spaces.pop(name)
   _save_config(config)

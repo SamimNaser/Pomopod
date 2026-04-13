@@ -13,10 +13,14 @@ def _ensure_state_dir() -> None:
   STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _is_active_space_set() -> bool:
+  return ACTIVE_SPACE_FILE.exists()
+
+
 def get_active_space_name() -> str:
   """
   Get the name of the active space.
-  Raises `ActiveSpaceDoesNotExist` if active the space does not exist.
+  Raises `ActiveSpaceNotSet` if active the space does not exist.
   """
   _ensure_state_dir()
 

@@ -42,6 +42,7 @@ ValidatedColor = Annotated[str, BeforeValidator(validate_color)]
 
 
 class Space(BaseModel):
+  name: str = Field(default=DEFAULT_ACTIVE_SPACE, description="Name of the space")
   focus_duration: int = Field(default=25, ge=1, le=600, description="Focus duration in minutes")
   short_break_duration: int = Field(default=5, ge=1, le=120, description="Short break in minutes")
   long_break_duration: int = Field(default=10, ge=1, le=300, description="Long break in minutes")
@@ -95,14 +96,29 @@ class TimerState(BaseModel):
   def _now(self):
     return int(round(time.time() * 1000))
 
+  def _get_active_space_duration(self, space: Space):
+    if self.current_type == TimerStateType.FOCUS:
+      return space.focus_duration
+    elif self.current_type == TimerStateType.SHORT_BREAK:
+      return space.short_break_duration
+    elif self.current_type == TimerStateType.LONG_BREAK:
+      return space.long_break_duration
+    else:
+      return 0
+
   def get_time_left_ms(self) -> int:
+    if self.is_paused:
+      return self.end_timestamp_ms
     remaining = self.end_timestamp_ms - self._now()
     return max(0, remaining)
 
-  def start(self, duration_ms: int):
+  def start(self, space_name: str, space: Space):
     """Start the timer with given duration."""
+    self.space_name = space_name
     self.is_paused = False
-    self.end_timestamp_ms = self._now() + duration_ms
+    self.current_type = TimerStateType.FOCUS
+    self.sessions_before_long_break = space.sessions_before_long_break
+    self.end_timestamp_ms = self._now() + self._get_active_space_duration(space) * 60 * 1000
 
   def pause(self) -> int:
     """Pause the timer, return remaining time."""
@@ -122,10 +138,13 @@ class TimerState(BaseModel):
     self.is_paused = False
     self.end_timestamp_ms = self._now() + remaining
 
-  def reset(self):
+  def reset(self, space):
     """Reset the timer for current session."""
-    self.is_paused = True
-    self.end_timestamp_ms = 0
+    self.end_timestamp_ms = self._now() + self._get_active_space_duration(space) * 60 * 1000
+
+  def reset_count(self):
+    """Reset the session count for current space."""
+    self.current_session_number = 1
 
   def stop(self):
     """Stop the timer and reset to idle."""
@@ -146,13 +165,16 @@ class TimerState(BaseModel):
     else:
       return TimerStateType.FOCUS
 
-  def cycle_session(self):
+  def cycle_session(self, space: Space) -> None:
     """Move to next session after current ends."""
     if self.current_type == TimerStateType.FOCUS:
       self.current_session_number += 1
+    if self.current_session_number > self.sessions_before_long_break:
+      self.current_session_number = 1
     self.current_type = self.get_next_session_type()
+    self.end_timestamp_ms = self._now() + self._get_active_space_duration(space) * 60 * 1000
 
-  def reset_sessions_number(self):
+  def reset_sessions_number(self) -> None:
     """Reset the sessions number for current space."""
     if self.current_type == TimerStateType.IDLE:
       return

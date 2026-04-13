@@ -61,6 +61,19 @@ def get_spaces() -> dict[str, Space]:
   return config.spaces
 
 
+def get_space(name: str) -> Space:
+  """
+  Get a space from the config.
+  Raises `SpaceDoesNotExist` if the space does not exist.
+  """
+  config = _load_config()
+
+  if name not in list(config.spaces.keys()):
+    raise SpaceDoesNotExist
+
+  return config.spaces[name]
+
+
 def get_space_names() -> list[str]:
   config = _load_config()
   return list(config.spaces.keys())
@@ -71,13 +84,13 @@ def get_active_space() -> Space:
 
   active_space_name = state.get_active_space_name()
 
-  return config.spaces.get(active_space_name)
+  return config.spaces[active_space_name]
 
 
 def add_space(name: str, space: Space) -> Space:
   """
   Add a space to the config.
-  Raises `SpaceDoesNotExist` if the space already exists.
+  Raises `SpaceAlreadyExists` if the space already exists.
   """
   config = _load_config()
 
@@ -90,10 +103,18 @@ def add_space(name: str, space: Space) -> Space:
 
 
 def edit_space(name: str, updates: dict) -> Space:
+  """
+  Add a space to the config.
+  Raises `SpaceDoesNotExist` if the space does not exist.
+  And raises `SpaceAlreadyExist` if the space already exists.
+  """
   config = _load_config()
 
-  if name not in list(config.spaces.keys()):
+  spaces = list(config.spaces.keys())
+  if name not in spaces:
     raise SpaceDoesNotExist
+  if updates["name"] in spaces:
+    raise SpaceAlreadyExists
 
   current = config.spaces[name]
   updated_data = current.model_dump()
@@ -107,7 +128,7 @@ def edit_space(name: str, updates: dict) -> Space:
 def remove_space(name: str) -> Space:
   """
   Remove a space from the config.
-  Raises `SpaceDoesNotExist` if the space already exists.
+  Raises `SpaceDoesNotExist` if the space does not exist.
   """
   config = _load_config()
 
@@ -127,13 +148,25 @@ def get_daemon_settings() -> DaemonSettings:
 def update_daemon_settings(
   host: Optional[str] = None, port: Optional[int] = None
 ) -> DaemonSettings:
+  """
+  Update the daemon settings.
+  Raises `ValidationError` if the settings are invalid.
+  """
+
+  if not host and not port:
+    raise ValidationError
+
   config = _load_config()
   if not host:
     host = config.daemon.host
   if not port:
     port = config.daemon.port
 
-  config.daemon = DaemonSettings.model_validate({"host": host, "port": port})
+  try:
+    config.daemon = DaemonSettings.model_validate({"host": host, "port": port})
+  except ValidationError:
+    raise ValidationError
+
   _save_config(config)
   return config.daemon
 

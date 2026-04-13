@@ -8,6 +8,8 @@ from rich.table import Table
 
 from pomopod.core import config, state
 from pomopod.core.models import Space
+from pomopod.exceptions.config import SpaceAlreadyExists, SpaceDoesNotExist
+from pomopod.exceptions.state import ActiveSpaceNotSet
 
 app = typer.Typer()
 console = Console()
@@ -38,9 +40,9 @@ def list_spaces():
   console.print(table)
 
 
-def _print_space(name: str, space: Space):
+def _print_space(space: Space):
   """Print the pomodoro space details."""
-  table = Table(title=f"{name}")
+  table = Table(title=f"{space.name}")
   table.add_column("Setting", style="cyan")
   table.add_column("Value", style="green")
 
@@ -56,31 +58,15 @@ def _print_space(name: str, space: Space):
 @app.command(name="show")
 def show_active_space():
   """Show the active pomodoro space details."""
-  name = state.get_active_space_name()
-  space = config.get_active_space()
-
-  if space is None or name is None:
-    rprint("No active space")
+  try:
+    space = config.get_active_space()
+  except ActiveSpaceNotSet:
+    rprint("[bold red]No active space found.[/bold red]")
+    rprint("Please set an active space first using the command below:\n")
+    rprint("[italic]pomopod space set <space_name>[/italic]")
     return
 
-  _print_space(name, space)
-
-
-@app.command(name="get")
-def show_space(
-  name: str = typer.Argument(
-    ...,
-    help="Name of the pomodoro space",
-  ),
-):
-  """Show the pomodoro space details."""
-  space = config.get_spaces().get(name)
-
-  if space is None:
-    rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
-    return
-
-  _print_space(name, space)
+  _print_space(space)
 
 
 @app.command(name="set")
@@ -92,11 +78,13 @@ def set_space(
   ),
 ):
   """Set the active pomodoro space."""
-  space = state.set_active_space(name)
-  if not space:
+  try:
+    state.set_active_space(name)
+  except SpaceDoesNotExist:
     rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
-  else:
-    rprint(f'Active space set to [bold green]"{name}"[/bold green]')
+    return
+
+  rprint(f'Active space set to [bold green]"{name}"[/bold green]')
 
 
 def _validate_space(space_dict: dict) -> Space:
@@ -153,20 +141,22 @@ def add_space(
     return
 
   if any(v is not None for v in [focus, short_break, long_break, sessions, color]):
-    space_dict = _add_space_non_interactive(focus, short_break, long_break, sessions, color)
+    space_dict = _add_space_non_interactive(name, focus, short_break, long_break, sessions, color)
   else:
-    space_dict = _add_space_interactive()
+    space_dict = _add_space_interactive(name)
 
   space = _validate_space(space_dict)
-  space = config.add_space(name, space)
-
-  if not space:
+  try:
+    config.add_space(name, space)
+  except SpaceAlreadyExists:
     rprint(f'Space [bold red]"{name}"[/bold red] already exists')
-  else:
-    rprint(f'Space [bold green]"{name}"[/bold green] added')
+    return
+
+  rprint(f'Space [bold green]"{name}"[/bold green] added')
 
 
 def _add_space_non_interactive(
+  name: str,
   focus: Optional[int],
   short_break: Optional[int],
   long_break: Optional[int],
@@ -174,11 +164,10 @@ def _add_space_non_interactive(
   color: Optional[str],
 ) -> dict:
   """Non-interactive space creation with defaults."""
-
-  spaces = config.get_spaces()
-  defaults = spaces.get("work", Space())
+  defaults = Space()
 
   return {
+    "name": name,
     "focus_duration": (focus if focus is not None else defaults.focus_duration),
     "short_break_duration": (
       short_break if short_break is not None else defaults.short_break_duration
@@ -191,9 +180,10 @@ def _add_space_non_interactive(
   }
 
 
-def _add_space_interactive() -> dict:
+def _add_space_interactive(name: str) -> dict:
   """Interactive space creation."""
 
+  rprint(f'Creating space [bold green]"{name}"[/bold green]:\n')
   rprint("Enter the durations in minutes.")
   focus = typer.prompt("Focus duration", type=int)
   short_break = typer.prompt("Short break duration", type=int)
@@ -202,6 +192,7 @@ def _add_space_interactive() -> dict:
   color = typer.prompt("Color", type=str)
 
   return {
+    "name": name,
     "focus_duration": focus,
     "short_break_duration": short_break,
     "long_break_duration": long_break,
@@ -216,6 +207,11 @@ def edit_space(
     ...,
     help="Name of the pomodoro space",
     autocompletion=complete_spaces,
+  ),
+  new_name: str = typer.Option(
+    None,
+    "--new-name",
+    help="New name of the space",
   ),
   focus: Optional[int] = typer.Option(
     None,
@@ -249,28 +245,40 @@ def edit_space(
   If options are provided, updates only those values.
   Otherwise, shows current values and prompts for new ones.
   """
-  space = config.get_spaces().get(name)
+  spaces = config.get_space_names()
 
-  if not space:
+  if name not in spaces:
     rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
     return
+  if new_name in spaces:
+    rprint(f'Space [bold red]"{new_name}"[/bold red] already exists')
+    return
 
-  if any(v is not None for v in [focus, short_break, long_break, sessions, color]):
-    space_dict = _edit_space_non_interactive(space, focus, short_break, long_break, sessions, color)
+  space = config.get_spaces()[name]
+
+  if any(v is not None for v in [new_name, focus, short_break, long_break, sessions, color]):
+    space_dict = _edit_space_non_interactive(
+      space, new_name, focus, short_break, long_break, sessions, color
+    )
   else:
-    space_dict = _edit_space_interactive(name, space)
+    space_dict = _edit_space_interactive(space)
 
   space = _validate_space(space_dict)
-  space = config.edit_space(name, space.model_dump())
+  try:
+    config.edit_space(name, space.model_dump())
+  except SpaceDoesNotExist:
+    rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
+    return
+  except SpaceAlreadyExists:
+    rprint(f'Space [bold red]"{new_name}"[/bold red] already exists')
+    pass
 
-  if not space:
-    rprint(f'Space [bold red]"{name}"[/bold red] already exists')
-  else:
-    rprint(f'Space [bold green]"{name}"[/bold green] edited')
+  rprint(f'Space [bold green]"{name}"[/bold green] edited')
 
 
 def _edit_space_non_interactive(
   space: Space,
+  name: Optional[str],
   focus: Optional[int],
   short_break: Optional[int],
   long_break: Optional[int],
@@ -280,6 +288,7 @@ def _edit_space_non_interactive(
   """Non-interactive space creation with defaults."""
 
   return {
+    "name": (name if name is not None else space.name),
     "focus_duration": (focus if focus is not None else space.focus_duration),
     "short_break_duration": (
       short_break if short_break is not None else space.short_break_duration
@@ -292,12 +301,13 @@ def _edit_space_non_interactive(
   }
 
 
-def _edit_space_interactive(name: str, space: Space) -> dict:
+def _edit_space_interactive(space: Space) -> dict:
   """Interactive space editing."""
 
-  show_space(name)
+  _print_space(space)
 
-  rprint("\nEnter the durations in minutes.")
+  rprint("\nEnter the durations in minutes. Leave empty to keep the current value.")
+  name = typer.prompt("Name", default=space.name, type=str)
   focus = typer.prompt("Focus duration", default=space.focus_duration, type=int)
   short_break = typer.prompt("Short break duration", default=space.short_break_duration, type=int)
   long_break = typer.prompt("Long break duration", default=space.long_break_duration, type=int)
@@ -305,6 +315,7 @@ def _edit_space_interactive(name: str, space: Space) -> dict:
   color = typer.prompt("Color", default=space.color, type=str)
 
   return {
+    "name": name,
     "focus_duration": focus,
     "short_break_duration": short_break,
     "long_break_duration": long_break,
@@ -339,12 +350,13 @@ def remove_space(
   if not force:
     typer.confirm(f'Delete the "{name}" space?', abort=True)
 
-  space = config.remove_space(name)
-
-  if not space:
+  try:
+    config.remove_space(name)
+  except SpaceDoesNotExist:
     rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
-  else:
-    rprint(f'Space [bold green]"{name}"[/bold green] removed permanantly')
+    return
+
+  rprint(f'Space [bold green]"{name}"[/bold green] removed permanantly')
 
 
 @app.command(name="rename")
@@ -357,7 +369,7 @@ def rename_space(
   new_name: Optional[str] = typer.Option(
     None,
     "--new-name",
-    "-to",
+    "-n",
     help="New name of the space",
   ),
 ):
@@ -374,22 +386,25 @@ def rename_space(
     rprint(f'Space [bold red]"{name}"[/bold red] already exists')
     return
 
-  rename_active_space = name == state.get_active_space_name()
-
-  space = config.remove_space(name)
-
-  if not space:
-    rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
+  if new_name == state.get_active_space_name():
+    rprint(f'Cannot rename to active space [bold red]"{name}"[/bold red]')
     return
 
-  space = config.add_space(new_name, space)
+  rename_active_space = name == state.get_active_space_name()
 
-  if not space:
+  try:
+    space = config.remove_space(name)
+    space = config.add_space(new_name, space)
+  except SpaceDoesNotExist:
+    rprint(f'Space [bold red]"{name}"[/bold red] does not exist')
+    return
+  except SpaceAlreadyExists:
     rprint(f'Space [bold red]"{name}"[/bold red] already exists')
-  else:
-    rprint(
-      f'Space [bold green]"{name}"[/bold green] renamed to [bold green]"{new_name}"[/bold green]'
-    )
+    return
+
+  rprint(
+    f'Space [bold green]"{name}"[/bold green] renamed to [bold green]"{new_name}"[/bold green]'
+  )
 
   if rename_active_space:
     set_space(new_name)

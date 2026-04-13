@@ -1,6 +1,7 @@
 from typing import Optional
 
 import typer
+from pydantic import ValidationError
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
@@ -15,6 +16,13 @@ console = Console()
 
 def complete_spaces(incomplete: str) -> list[str]:
   return [p for p in config.get_space_names() if p.startswith(incomplete)]
+
+
+@app.command(name="init")
+def init_configuration():
+  """Initializes pomopod configuration with default values."""
+  conf = config._get_default_config()
+  config._save_config(conf)
 
 
 @app.command(name="show")
@@ -51,7 +59,10 @@ def set_daemon_settings(
   ),
 ):
   """Set daemon settings."""
-  config.update_daemon_settings(host, port)
+  try:
+    config.update_daemon_settings(host, port)
+  except ValidationError:
+    rprint("[red]Invalid daemon settings. Please try again.[/red]")
 
 
 @app.command(name="notif")
@@ -59,6 +70,7 @@ def set_notification_settings(
   enable: Optional[bool] = typer.Option(
     None,
     "--enable/--disable",
+    "--yes/--no",
     help="Enable or disable notifications",
   ),
 ):
